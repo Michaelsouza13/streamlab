@@ -30,12 +30,10 @@ export interface Category {
   color: string
 }
 
-export type CorsProxyMode = 'none' | 'corsproxy' | 'cors-euorg'
-
 export interface Settings {
   tmdbApiKey: string
-  corsProxy: CorsProxyMode
   tmdbLanguage: string
+  workerUrl: string
 }
 
 export interface AppData {

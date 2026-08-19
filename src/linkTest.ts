@@ -1,12 +1,11 @@
-import type { CorsProxyMode } from './types'
-import { fetchWithProxy } from './cors'
+import { fetchWithTimeout } from './cors'
 import { log } from './logger'
 
 export type TestErrorKind = 'cors' | 'timeout' | 'http' | null
 
 export interface TestResult {
   ok: boolean
-  mode: CorsProxyMode
+  mode: 'direct'
   status: number | null
   contentType: string | null
   acao: string | null
@@ -22,11 +21,11 @@ function previewOf(text: string): string {
   return clean.slice(0, 90)
 }
 
-export async function testLinkDetailed(url: string, mode: CorsProxyMode): Promise<TestResult> {
+export async function testLinkDetailed(url: string): Promise<TestResult> {
   const t0 = performance.now()
   const base: TestResult = {
     ok: false,
-    mode,
+    mode: 'direct',
     status: null,
     contentType: null,
     acao: null,
@@ -37,10 +36,10 @@ export async function testLinkDetailed(url: string, mode: CorsProxyMode): Promis
     errorMsg: '',
   }
 
-  log('info', 'test', `Testando link (modo: ${mode})`, { url })
+  log('info', 'test', 'Testando link (modo: direto)', { url })
 
   try {
-    const res = await fetchWithProxy(url, mode, 15000)
+    const res = await fetchWithTimeout(url, 15000)
     const elapsedMs = Math.round(performance.now() - t0)
     const contentType = res.headers.get('content-type')
     const acao = res.headers.get('access-control-allow-origin')

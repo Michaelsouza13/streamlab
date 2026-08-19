@@ -41,8 +41,57 @@ Obs.: o `netlify.toml` só é usado se um dia conectar o repositório ao Netlify
 ## Configurações importantes
 
 - **Chave TMDB** (gratuita em themoviedb.org): Configurações → Chave da API TMDB. Fica salva no navegador de cada usuário.
-- **Proxy CORS**: Configurações → Proxy CORS — para streams que bloqueiam o navegador. O player sempre tenta conexão direta primeiro (caminho nativo, sem CORS) e o botão "Abrir no navegador" é o fallback garantido.
+- **Proxy próprio**: Configurações → URL do proxy próprio — necessário para streams que redirecionam para HTTP (ver seção abaixo). Vazio = desativado.
 - **Dados**: tudo fica no localStorage do navegador. Use Configurações → Exportar backup para guardar; Importar backup restaura.
+
+## Proxy próprio (streams bloqueados)
+
+Alguns canais (ex.: `3xdglab.me`) respondem com um redirecionamento para um IP **sem HTTPS** (`http://216.106.176.111:80/...`). O app roda em HTTPS (Netlify), então o navegador bloqueia essas requisições como *mixed content*, e o servidor IPTV não envia headers CORS — o link só funciona em aba (navegação top-level). O proxy resolve isso buscando tudo do lado do servidor e entregando por HTTPS com `Access-Control-Allow-Origin: *`.
+
+O campo **Configurações → URL do proxy próprio** aceita qualquer URL de proxy; quando preenchido, o player tenta por ele primeiro. Há duas formas de rodar:
+
+### Local via Tailscale (recomendado — sem cotas, banda ilimitada)
+
+1. No PC que vai ficar de servidor, confira/instale o Node.js 18+:
+
+   ```powershell
+   node --version          # se falhar:
+   winget install OpenJS.NodeJS.LTS
+   ```
+
+2. Copie a pasta `proxy/` para o PC e rode:
+
+   ```powershell
+   node proxy\proxy.mjs    # escuta em http://127.0.0.1:8787
+   ```
+
+   (Também roda com `deno run -A proxy.mjs`.)
+
+3. Exponha via Tailscale (com Tailscale logado no PC e no celular):
+
+   ```powershell
+   tailscale serve --bg --https=443 http://127.0.0.1:8787
+   tailscale serve status        # copie https://<pc>.<sua-tailnet>.ts.net
+   ```
+
+4. No app: Configurações → URL do proxy próprio → cole a URL `https://<pc>.<sua-tailnet>.ts.net`. Funciona do PC e do celular, de qualquer rede (Tailnet), com certificado HTTPS válido renovado automaticamente.
+
+Observações:
+- O PC precisa ficar ligado/acordado enquanto você assiste (ambiente Windows: ajuste "dormir após" nas opções de energia).
+- O script não tem cotas: use quanto quiser.
+- (Opcional) Início automático com o Windows: Abra o Agendador de Tarefas → Criar tarefa → disparador "No logon" → ação `node` com argumentos `C:\caminho\proxy\proxy.mjs` → marque "Executar mesmo sem o usuário estar conectado" (precisa de senha de administrador na criação).
+
+### Nuvem via Deno Deploy (fallback quando o PC está desligado)
+
+1. Em `https://dash.deno.com` crie um projeto ("New Project" → "Playground").
+2. Cole o conteúdo de `proxy/proxy.mjs` no editor e clique em Deploy.
+3. Copie a URL gerada (`https://<projeto>-<usuario>.deno.net`) e cole em Configurações → URL do proxy próprio.
+
+Limites do plano Free (2026): 1M requests/mês, **20 GB de egress/mês** (≈ 12–13h de stream ativo), 15h de CPU. Ao estourar qualquer limite os apps são **pausados até o próximo ciclo mensal**. Limites completos exigem verificação com cartão. Pro: US$ 20/mês (200 GB).
+
+### Aviso sobre proxies públicos
+
+Proxies CORS públicos (corsproxy.io, cors.eu.org, etc.) não são suportados: a maioria morreu ou retorna 403/erros, e com o proxy próprio eles ficam desnecessários. Para testes rápidos, "Abrir no navegador" no player continua sendo o fallback garantido.
 
 ## Logs
 

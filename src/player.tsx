@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import type HlsType from 'hls.js'
 import type { LinkStatus, MediaLink, Settings } from './types'
-import { withProxy } from './cors'
+import { withWorker } from './cors'
 import { downloadLogs, getLogs, log } from './logger'
 
 interface PlayerModalProps {
@@ -24,13 +24,13 @@ interface PlayerModalProps {
 }
 
 type PlayerStatus = 'loading' | 'playing' | 'click-to-play' | 'error'
-type PlayMode = 'native' | 'hls-direct' | 'hls-noreferer' | 'hls-proxy'
+type PlayMode = 'native' | 'hls-worker' | 'hls-direct' | 'hls-noreferer'
 
 const MODE_LABELS: Record<PlayMode, string> = {
   native: 'Nativo',
+  'hls-worker': 'Via Worker',
   'hls-direct': 'HLS direto',
   'hls-noreferer': 'Sem Referer',
-  'hls-proxy': 'Via proxy',
 }
 
 export function PlayerModal({ link, settings, onClose, onStatus }: PlayerModalProps) {
@@ -45,13 +45,12 @@ export function PlayerModal({ link, settings, onClose, onStatus }: PlayerModalPr
 
   const modes = useMemo<PlayMode[]>(() => {
     const isPlaylist = /\.m3u8?($|\?|#)/i.test(link.url)
-    const m: PlayMode[] = ['native']
-    if (isPlaylist) {
-      m.push('hls-direct', 'hls-noreferer')
-      if (settings.corsProxy !== 'none') m.push('hls-proxy')
-    }
+    if (!isPlaylist) return ['native']
+    const m: PlayMode[] = []
+    if (settings.workerUrl.trim()) m.push('hls-worker')
+    m.push('native', 'hls-direct', 'hls-noreferer')
     return m
-  }, [link.url, settings.corsProxy])
+  }, [link.url, settings.workerUrl])
 
   const mode = modes[modeIdx] ?? modes[0]
 
@@ -81,7 +80,7 @@ export function PlayerModal({ link, settings, onClose, onStatus }: PlayerModalPr
       url: link.url,
     })
 
-    const url = mode === 'hls-proxy' ? withProxy(link.url, settings.corsProxy) : link.url
+    const url = mode === 'hls-worker' ? withWorker(link.url, settings.workerUrl) : link.url
 
     const fail = (msg: string) => {
       if (cancelled) return
@@ -133,7 +132,7 @@ export function PlayerModal({ link, settings, onClose, onStatus }: PlayerModalPr
         if (!cancelled) setStatus('click-to-play')
       })
     } else {
-      // ── Modos hls.js: direto, sem Referer ou via proxy ──
+      // ── Modos hls.js: direto ou sem Referer ──
       const runHls = async () => {
         const { default: Hls } = await import('hls.js')
         if (cancelled) return

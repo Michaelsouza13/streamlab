@@ -1,7 +1,6 @@
 import type { Category, MediaLink } from './types'
 import { uid } from './storage'
-import { fetchWithProxy } from './cors'
-import type { CorsProxyMode } from './types'
+import { fetchWithTimeout } from './cors'
 
 export interface ParsedEntry {
   name: string
@@ -85,11 +84,8 @@ export function exportM3u(links: MediaLink[], categories: Category[]): string {
   return lines.join('\n')
 }
 
-export async function fetchRemoteList(
-  url: string,
-  corsProxy: CorsProxyMode,
-): Promise<string> {
-  const res = await fetchWithProxy(url, corsProxy, 20000)
+export async function fetchRemoteList(url: string): Promise<string> {
+  const res = await fetchWithTimeout(url, 20000)
   if (!res.ok) throw new Error(`Falha ao baixar lista (HTTP ${res.status})`)
   return res.text()
 }

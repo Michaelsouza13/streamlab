@@ -59,7 +59,7 @@ export function AddModal({
     setBusy(true)
     setError('')
     try {
-      const text = await fetchRemoteList(url.trim(), settings.corsProxy)
+      const text = await fetchRemoteList(url.trim())
       const entries = parseM3u(text)
       if (!entries.length) {
         setError('A URL não retornou uma lista M3U válida.')

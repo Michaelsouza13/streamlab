@@ -18,8 +18,8 @@ export const CATEGORY_COLORS = [
 
 export const DEFAULT_SETTINGS: Settings = {
   tmdbApiKey: '',
-  corsProxy: 'none',
   tmdbLanguage: 'pt-BR',
+  workerUrl: '',
 }
 
 export const DEFAULT_CATEGORIES: Category[] = [

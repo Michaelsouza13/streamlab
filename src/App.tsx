@@ -52,6 +52,29 @@ function download(name: string, content: string, mime: string) {
   URL.revokeObjectURL(url)
 }
 
+function channelIdFromCloutteam(url: string): string | null {
+  const m = url.match(/\/proxy\/hls\/([^/]+?)\.m3u8/)
+  if (!m) return null
+  try {
+    const b64 = m[1] + '='.repeat((4 - (m[1].length % 4)) % 4)
+    const decoded = decodeURIComponent(
+      atob(b64)
+        .split('')
+        .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join('')
+    )
+    const id = decoded.match(/\/live\/\d+\/\d+\/(\d+)\.m3u8/)
+    return id ? id[1] : null
+  } catch {
+    return null
+  }
+}
+
+function channelIdFromDirect(url: string): string | null {
+  const m = url.match(/\/live\/\d+\/\d+\/(\d+)\.m3u8/)
+  return m ? m[1] : null
+}
+
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadData())
   const [selected, setSelected] = useState('all')
@@ -68,6 +91,7 @@ export default function App() {
   const [logsOpen, setLogsOpen] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
   const bootRef = useRef(false)
+  const migrateRef = useRef(false)
 
   useEffect(() => {
     saveData(data)
@@ -96,8 +120,8 @@ export default function App() {
   useEffect(() => {
     if (bootRef.current || data.links.length > 0) return
     bootRef.current = true
-    if (localStorage.getItem('streamlab:booted:v1')) return
-    localStorage.setItem('streamlab:booted:v1', '1')
+    if (localStorage.getItem('streamlab:booted:v1') || localStorage.getItem('streamlab:booted:v2')) return
+    localStorage.setItem('streamlab:booted:v2', '1')
     log('info', 'boot', 'Primeiro acesso — importando lista padrão')
     const run = async () => {
       try {
@@ -115,6 +139,51 @@ export default function App() {
         toast(`Lista padrão importada (${entries.length} canais)`)
       } catch (err) {
         log('error', 'boot', 'Falha ao importar lista padrão', {
+          msg: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+    void run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Migração v2: substitui links do proxy cloutteam (morto — retorna 404
+  // "Application not found") pelos URLs diretos 3xdglab.me equivalentes
+  useEffect(() => {
+    if (migrateRef.current) return
+    migrateRef.current = true
+    if (localStorage.getItem('streamlab:booted:v2')) return
+    if (!data.links.some((l) => l.url.includes('/proxy/hls/'))) return
+    localStorage.setItem('streamlab:booted:v2', '1')
+    log('info', 'data', 'Migração v2: substituindo links do proxy cloutteam')
+    const run = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.BASE_URL}default-playlist.m3u8`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const entries = parseM3u(await res.text())
+        if (!entries.length) throw new Error('lista vazia')
+        const direct = new Map<string, string>()
+        for (const e of entries) {
+          const id = channelIdFromDirect(e.url)
+          if (id && !direct.has(id)) direct.set(id, e.url)
+        }
+        const old = data.links
+        const links = old.map((l) => {
+          if (!l.url.includes('/proxy/hls/')) return l
+          const id = channelIdFromCloutteam(l.url)
+          const target = id ? direct.get(id) : undefined
+          return target ? { ...l, url: target } : l
+        })
+        const trocados = old.filter((l) => {
+          if (!l.url.includes('/proxy/hls/')) return false
+          const id = channelIdFromCloutteam(l.url)
+          return id != null && direct.has(id)
+        }).length
+        setData((d) => ({ ...d, links }))
+        log('info', 'data', `Migração v2: ${trocados} links atualizados para 3xdglab.me`)
+        if (trocados > 0) toast(`Links do proxy atualizados para os servidores diretos (${trocados})`)
+      } catch (err) {
+        log('error', 'data', 'Migração v2 falhou', {
           msg: err instanceof Error ? err.message : String(err),
         })
       }
@@ -240,7 +309,7 @@ export default function App() {
     async (link: MediaLink) => {
       if (testingId) return
       setTestingId(link.id)
-      const result = await testLinkDetailed(link.url, data.settings.corsProxy)
+      const result = await testLinkDetailed(link.url)
       setLinkStatus(link.id, result.ok ? 'ok' : 'fail')
       if (result.ok) {
         toast(`${link.name}: OK (${result.status})${result.bodyType === 'm3u8' ? ' · HLS válido' : ''}`)
@@ -259,7 +328,7 @@ export default function App() {
       setTestingId(null)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [testingId, data.settings.corsProxy],
+    [testingId],
   )
 
   // ── Importar / Exportar ─────────────────────────────────
@@ -312,23 +381,32 @@ export default function App() {
     toast('Backup exportado')
   }
 
-  // Restauração manual da lista padrão (merge sem duplicar)
+  // Restauração manual da lista padrão (merge sem duplicar + troca de proxies mortos)
   const restoreDefaultList = async () => {
     try {
       const res = await fetch(`${import.meta.env.BASE_URL}default-playlist.m3u8`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const entries = parseM3u(await res.text())
       if (!entries.length) throw new Error('lista vazia')
-      const existing = new Set(data.links.map((l) => l.url))
-      const canaisId = data.categories.find((c) => c.name === 'Canais ao vivo')?.id ?? null
-      const fresh = entriesToLinks(entries, data.categories, canaisId).filter((l) => !existing.has(l.url))
-      if (fresh.length === 0) {
-        toast('Lista padrão já está toda na biblioteca')
-        return
+      const direct = new Map<string, string>()
+      for (const e of entries) {
+        const id = channelIdFromDirect(e.url)
+        if (id && !direct.has(id)) direct.set(id, e.url)
       }
-      setData((d) => ({ ...d, links: [...d.links, ...fresh] }))
-      log('info', 'data', `Restauração da lista padrão: ${fresh.length} canais adicionados`)
-      toast(`Lista padrão restaurada (${fresh.length} canais)`)
+      const fresh = entriesToLinks(entries, data.categories, data.categories.find((c) => c.name === 'Canais ao vivo')?.id ?? null)
+      setData((d) => {
+        const substituted = d.links.map((l) => {
+          if (!l.url.includes('/proxy/hls/')) return l
+          const id = channelIdFromCloutteam(l.url)
+          const target = id ? direct.get(id) : undefined
+          return target ? { ...l, url: target } : l
+        })
+        const existing = new Set(substituted.map((l) => l.url))
+        const added = fresh.filter((l) => !existing.has(l.url))
+        return { ...d, links: [...substituted, ...added] }
+      })
+      log('info', 'data', 'Restauração da lista padrão concluída')
+      toast('Lista padrão restaurada')
     } catch (err) {
       log('error', 'data', 'Restauração da lista padrão falhou', {
         msg: err instanceof Error ? err.message : String(err),

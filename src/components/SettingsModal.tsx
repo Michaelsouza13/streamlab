@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Download, ExternalLink, FileDown, FileUp, KeyRound, RotateCcw, ScrollText, Trash2, X } from 'lucide-react'
-import type { CorsProxyMode, Settings } from '../types'
-import { PROXY_OPTIONS } from '../cors'
+import type { Settings } from '../types'
 import { clearLogs, downloadLogs } from '../logger'
 import { LogsModal } from './LogsModal'
 
@@ -101,21 +100,19 @@ export function SettingsModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">Proxy CORS</label>
-            <select
-              value={settings.corsProxy}
-              onChange={(e) => onChange({ corsProxy: e.target.value as CorsProxyMode })}
+            <label className="mb-1 block text-xs font-medium text-zinc-500">URL do proxy próprio (local / Tailscale / Deno)</label>
+            <input
+              type="text"
+              value={settings.workerUrl}
+              onChange={(e) => onChange({ workerUrl: e.target.value })}
+              placeholder="https://seupc.suatalnet.ts.net ou http://127.0.0.1:8787"
               className={field}
-            >
-              {PROXY_OPTIONS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+            />
             <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-600">
-              Use se os streams não carregarem por bloqueio do navegador. Proxies podem reduzir a velocidade e alguns
-              serviços bloqueiam IPs de datacenter — nesse caso o player tenta direto primeiro.
+              Ponte que converte HTTP→HTTPS para streams bloqueados por mixed content (ex.: 3xdglab.me redireciona
+              para um IP em HTTP). Local: <code className="text-zinc-500">node proxy/proxy.mjs</code> +{' '}
+              <code className="text-zinc-500">tailscale serve --bg --https=443 http://127.0.0.1:8787</code>; nuvem:
+              Deno Deploy. Vazio = desativado. Quando preenchido, o player tenta por aqui primeiro.
             </p>
           </div>
 
